@@ -56,13 +56,13 @@ class GraphGui(tk.Tk):
         )
         self.txt_row = scrolledtext.ScrolledText(self, width=52, height=2, wrap=tk.WORD)
         self.txt_row.grid(row=row, column=1, columnspan=2, sticky="ew", **pad)
-        self.txt_row.insert(tk.END, r"n^{{row}}")
+        self.txt_row.insert(tk.END, r"(\frac{n}{ev(2^{row})})^{2}")
         row += 1
 
         ttk.Label(self, text="func_sum").grid(row=row, column=0, sticky="nw", **pad)
         self.txt_sum = scrolledtext.ScrolledText(self, width=52, height=2, wrap=tk.WORD)
         self.txt_sum.grid(row=row, column=1, columnspan=2, sticky="ew", **pad)
-        self.txt_sum.insert(tk.END, r"\frac{n^{{row}}}{2^{{row}}}")
+        self.txt_sum.insert(tk.END, r"\frac{n^{2}}{ev(2^{{row}})}")
         row += 1
 
         def add_labeled_entry(label: str, default: str, r: int) -> ttk.Entry:

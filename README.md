@@ -16,6 +16,8 @@ Small Python helpers and a **tkinter GUI** to draw a complete expansion tree (wi
    - `.\run_graph_gui.ps1` (Windows)
 5. Edit **func_row**, **func_sum**, **expansion**, **display_height**, optional labels / bottom row / PDF pixel bounds, then **Generate PDF**.  
    PDFs go to `gui_pdf_out/`. Use **Copy TikZ** or enable auto-copy after generate.
+6. After pressing **Copy TikZ** you have the latex code for the graph, to use it in lyx press ctrl+L and in the box paste the code when processing the latex into a pdf it should be a graph.
+
 
 ### B. Copy a `graph:` line and run
 
@@ -41,6 +43,7 @@ Small Python helpers and a **tkinter GUI** to draw a complete expansion tree (wi
    ```
    graph:\frac{n}{ev(2^{2r})}|3|n^{2}|O(logn)|O(n)|1|n^{2}
    ```
+make sure to not copy the math block itself and only the contants starting with graph:
 
 **Programmatic use:** `make_graph_from_latex_spec(...)` and `make_graph_from_delimited_latex(spec)` in `make_graph.py` — the latter returns `(tikz, pdf_size_dict)` for `write_tikz_pdf(..., **pdf_size_dict)`.
 
@@ -63,9 +66,10 @@ Supported forms:
 | `row*k`, `r*k`, `k*row`, `k*r` | Multiply / divide row by an integer |
 | `row/k`, `r/k` | Integer divide when exact, else a short decimal |
 | `p/q` | Integer division or decimal |
+| plain integer | e.g. `ev(1)` → `1` (pairs with cleanup below) |
 | `a^{exponent}` | Integer power; exponent can be digits, `row` / `r`, `kr` / `k r` / `krow` (meaning `k × row`), or `k*row`-style |
 
-Examples: `ev(2^{{row}})` → `2^row`; `ev(2^{{2r}})` → `2^(2*row)`; `\frac{n}{ev(2^{{2r}})}` for a decaying denominator.
+Examples: `ev(2^{{row}})` → `2^row`; `ev(2^{{2r}})` → `2^(2*row)`; `\frac{n}{ev(2^{{2r}})}` for a decaying denominator. After substitution, the pipeline removes `\frac{·}{1}`, turns `x^{0}` / `x^0` (single-letter base) into `1`, unwraps `(n)^{2}` → `n^{2}`, and strips redundant `*1`, `\cdot 1`, `/1`, etc. (e.g. `n * ev(1)` → `n`, `\frac{n}{ev(1)}` → `n`).
 
 ---
 

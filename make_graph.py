@@ -6,10 +6,10 @@ Rows are ``0 .. display_height - 1`` are drawn in full. The conceptual leaf row
 brackets use that width. With at least three conceptual leaves, the bottom row
 is drawn as ``s`` leaves, ``$\\cdots$``, then ``s`` more (``1 \\cdots 1`` style),
 where ``s`` comes from ``leaf_row_side_nodes`` or, when that is ``None``, from a
-default cap of ``1.5 × expansion^{display_height - 1}`` (the node count one row
-above the leaf row), and ``s`` is also capped so the drawn bottom row does not
-use more tokens per side than that parent row (``expansion^{display_height-1}`` nodes).
-Bottom-row nodes may use a smaller ``bottom_row_font`` (default ``\\tiny``).
+default cap on drawn symbols, with ``s`` chosen so the abbreviated bottom row
+still shows **more** token positions than the row above the leaves (when
+``expansion^{display_height} \ge 3``), while each leaf is drawn **smaller** than
+prefix nodes (``scale`` + ``bottom_row_font``).
 With one or two conceptual leaves, every leaf is drawn with no middle dots.
 
 A centered ``$\\vdots$`` separates the last prefix row from the leaf row (no
@@ -135,6 +135,7 @@ def _eval_ev_inner(inner: str, row: int) -> str:
     - ``row`` or ``r`` (row index), ``row*k`` / ``r*k``, ``k*row`` / ``k*r``, ``row/k`` / ``r/k``
       (``k`` a non-negative integer).
     - ``p/q`` (integer division when exact, else decimal).
+    - A plain non-negative integer (e.g. ``1``, ``42``).
     - ``a^{exponent}`` — LaTeX-style power; ``exponent`` is parsed by
       :func:`_latex_exponent_to_int` (``2^{{row}}``, ``2^{{2r}}``, ``2^{{2row}}`` all work).
     """
@@ -142,6 +143,9 @@ def _eval_ev_inner(inner: str, row: int) -> str:
 
     if re.fullmatch(r"row|r", s):
         return str(row)
+
+    if re.fullmatch(r"\d+", s):
+        return s
 
     m = re.fullmatch(r"(?:row|r)\s*\*\s*(\d+)", s)
     if m:
@@ -181,8 +185,104 @@ def _eval_ev_inner(inner: str, row: int) -> str:
     )
 
 
+def _simplify_frac_denominator_one(s: str) -> str:
+    """Replace ``\\frac{NUM}{1}`` and ``\\dfrac{NUM}{1}`` with ``NUM`` (balanced braces)."""
+    out: list[str] = []
+    i = 0
+    frags = (r"\frac", r"\dfrac")
+    while i < len(s):
+        found_at = -1
+        which = ""
+        for frag in frags:
+            j = i
+            while True:
+                j = s.find(frag, j)
+                if j == -1:
+                    break
+                if j > 0 and s[j - 1] == "\\":
+                    j += 1
+                    continue
+                if found_at == -1 or j < found_at:
+                    found_at = j
+                    which = frag
+                break
+        if found_at == -1:
+            out.append(s[i:])
+            break
+        out.append(s[i:found_at])
+        k = found_at + len(which)
+        if k < len(s) and s[k] == "{":
+            g1 = _tex_brace_group(s, k)
+            if g1 is not None:
+                num, k2 = g1
+                if k2 < len(s) and s[k2] == "{":
+                    g2 = _tex_brace_group(s, k2)
+                    if g2 is not None:
+                        den, k3 = g2
+                        if den.strip() == "1":
+                            out.append(num)
+                            i = k3
+                            continue
+                        out.append(s[found_at:k3])
+                        i = k3
+                        continue
+                out.append(s[found_at:k2])
+                i = k2
+                continue
+        out.append(s[found_at : found_at + len(which)])
+        i = found_at + len(which)
+    return "".join(out)
+
+
+def _simplify_zero_exponent(s: str) -> str:
+    """Turn ``x^0`` / ``x^{0}`` (single-letter base) into ``1`` (e.g. ``n^0`` after substitution)."""
+    t = re.sub(r"(?<![0-9\\.])([a-zA-Z])\^\{0\}(?![0-9])", r"1", s)
+    t = re.sub(r"(?<![0-9\\.])([a-zA-Z])\^0(?![0-9])", r"1", t)
+    return t
+
+
+def _unwrap_redundant_parens_around_power(s: str) -> str:
+    r"""``(n)^{2}`` / ``(n)^2`` with a single-letter body → ``n^{2}`` / ``n^2``."""
+    t = re.sub(r"\(\s*([a-zA-Z])\s*\)\^\{([0-9]+)\}", r"\1^{\2}", s)
+    t = re.sub(r"\(\s*([a-zA-Z])\s*\)\^([0-9]+)(?![0-9])", r"\1^\2", t)
+    return t
+
+
+def _cleanup_redundant_one_in_math(s: str) -> str:
+    """
+    After ``ev(...)``, simplify obvious ``1`` forms in LaTeX-ish math:
+
+    - ``\\frac{NUM}{1}`` / ``\\dfrac{NUM}{1}`` → ``NUM``
+    - ``x^0`` / ``x^{0}`` (single-letter base) → ``1``
+    - ``(n)^{2}``-style with a single-letter body → ``n^{2}`` / ``n^2``
+    - remove trivial ``*1``, ``\\cdot 1``, ``/1``, leading ``1*`` / ``1\\cdot``, etc.
+    """
+    t = s
+    for _ in range(24):
+        prev = t
+        t = _simplify_frac_denominator_one(t)
+        t = _simplify_zero_exponent(t)
+        t = _unwrap_redundant_parens_around_power(t)
+        t2 = t
+        for _i in range(12):
+            p2 = t2
+            t2 = re.sub(r"\\cdot\s*1(?!\d)", "", t2)
+            t2 = re.sub(r"\\times\s*1(?!\d)", "", t2)
+            t2 = re.sub(r"\*\s*1(?!\d)", "", t2)
+            t2 = re.sub(r"(?<![0-9.])1\s*\\cdot\s*(?=[a-zA-Z\\\({])", "", t2)
+            t2 = re.sub(r"(?<![0-9.])1\s*\\times\s*(?=[a-zA-Z\\\({])", "", t2)
+            t2 = re.sub(r"(?<![0-9.])1\s*\*\s*(?=[a-zA-Z\\\({])", "", t2)
+            t2 = re.sub(r"/\s*1(?!\d)", "", t2)
+            if t2 == p2:
+                break
+        t = t2
+        if t == prev:
+            break
+    return t.rstrip(" \t")
+
+
 def substitute_ev(template: str, row: int) -> str:
-    """Replace each balanced ``ev(...)`` using :func:`_eval_ev_inner`."""
+    """Replace each ``ev(...)`` via :func:`_eval_ev_inner`, then simplify trivial ``1`` / ``\\frac{·}{1}`` / ``^0`` forms."""
     out: list[str] = []
     i = 0
     while True:
@@ -207,7 +307,7 @@ def substitute_ev(template: str, row: int) -> str:
             k += 1
         else:
             raise ValueError("unclosed ev(")
-    return "".join(out)
+    return _cleanup_redundant_one_in_math("".join(out))
 
 
 def expression_from_latex(template: str, *, placeholder: str = "{row}") -> Callable[[int], str]:
@@ -218,9 +318,12 @@ def expression_from_latex(template: str, *, placeholder: str = "{row}") -> Calla
 
     - ``row`` or ``r``, ``row*k`` / ``r*k``, ``k*row`` / ``k*r``, ``row/k`` / ``r/k`` (``k`` integer),
     - ``p/q`` (integer division when exact, else a short decimal),
+    - a plain non-negative integer (e.g. ``ev(1)`` → ``1``),
     - ``a^{exponent}`` — LaTeX power: ``exponent`` may be digits, ``row`` or ``r``,
       ``kr`` / ``k r`` / ``krow`` meaning ``k*row``, or ``k*row`` / ``row*k`` / ``k*r`` / ``r*k``.
       Use the same doubled braces as elsewhere (``2^{{row}}``) so ``^{{...}}`` parses correctly.
+
+    After all ``ev(...)`` calls, trivial factors like ``*1``, ``\\cdot 1``, ``/1``, and leading ``1\\cdot`` are removed when safe.
 
     **``{row}``** and **``{r}``** are then replaced by the row index string.
 
@@ -233,7 +336,8 @@ def expression_from_latex(template: str, *, placeholder: str = "{row}") -> Calla
 
         def f(row: int) -> str:
             t = substitute_ev(template, row)
-            return _substitute_row_placeholders(t, row, alt_placeholder=placeholder)
+            t = _substitute_row_placeholders(t, row, alt_placeholder=placeholder)
+            return _cleanup_redundant_one_in_math(t)
 
         return f
 
@@ -276,11 +380,12 @@ def _tree_x_bounds(
 
 
 def _default_max_bottom_nodes(expansion: int, display_height: int) -> int:
-    """Cap on drawn bottom-row symbols: ``1.5 ×`` nodes in the row above the leaf row."""
+    """Upper bound on drawn bottom-row symbols (``2*sides + 1`` when abbreviated)."""
     if display_height < 1:
         return 3
     parent_m = expansion ** (display_height - 1)
-    return max(3, int(round(1.5 * parent_m)))
+    # Room for sides_min ≈ ceil(parent_m/2) ⇒ need ≥ parent_m+2 symbols typically.
+    return max(parent_m + 4, int(round(2.0 * parent_m)))
 
 
 def _auto_leaf_sides(n: int, max_bottom_nodes: int) -> int:
@@ -320,8 +425,9 @@ def _leaf_row_layout(
         return list(range(n)), None, 0.0
     if display_height >= 1:
         parent_m = expansion ** (display_height - 1)
-        max_sides_by_parent = max(1, (parent_m - 1) // 2)
-        sides = min(sides, max_sides_by_parent)
+        # At least this many symbols per side so ``2*sides + 1 > parent_m`` when we abbreviate.
+        sides_min = max(1, (parent_m + 1) // 2)
+        sides = max(sides, sides_min)
     sides = min(sides, (n - 1) // 2)
     while sides > 1 and 2 * sides >= n:
         sides -= 1
@@ -546,7 +652,8 @@ def make_graph_from_latex_spec(
     def row_sum_fn(r: int) -> str:
         if r == d and bottom_sum.strip() != "":
             t = substitute_ev(bottom_sum, r)
-            return _substitute_row_placeholders(t, r, alt_placeholder=placeholder)
+            t = _substitute_row_placeholders(t, r, alt_placeholder=placeholder)
+            return _cleanup_redundant_one_in_math(t)
         return sum_fn_base(r)
 
     return makeGraph(
@@ -661,7 +768,8 @@ def makeGraph(
     leaf_row_sum: when ``row_sum_fn`` is set, optional override for the right-hand
         sum aligned with the leaf row (else ``row_sum_fn(display_height)``).
     bottom_row_font: TikZ ``font=...`` for leaf-row nodes and the horizontal
-        ``$\\cdots$`` (default ``\\tiny``). Use ``None`` to inherit the picture font.
+        ``$\\cdots$`` (default ``\\tiny``). Leaf nodes always use a slightly smaller
+        ``scale`` and ``inner sep`` than prefix rows so they read lighter.
     """
     if expansion < 1:
         raise ValueError("expansion must be >= 1")
@@ -669,7 +777,9 @@ def makeGraph(
         raise ValueError("display_height must be >= 1")
 
     d = _leaf_depth(display_height)
-    leaf_label_body = _substitute_row_placeholders(substitute_ev(bottom_value, d), d)
+    leaf_label_body = _cleanup_redundant_one_in_math(
+        _substitute_row_placeholders(substitute_ev(bottom_value, d), d)
+    )
     max_bottom_nodes = _default_max_bottom_nodes(expansion, display_height)
     leaf_left, leaf_right, x_gap_leaf_cdots = _leaf_row_layout(
         expansion, display_height, x_unit, leaf_row_side_nodes, max_bottom_nodes
@@ -700,11 +810,9 @@ def makeGraph(
     lines.append(r"]")
 
     def _leaf_row_bracket() -> str:
-        parts = []
+        parts = ["scale=0.78", "inner sep=0.38pt"]
         if bottom_row_font and str(bottom_row_font).strip():
             parts.append(f"font={bottom_row_font.strip()}")
-        if not parts:
-            return ""
         return "[" + ",".join(parts) + "]"
 
     _lb = _leaf_row_bracket()
@@ -795,7 +903,9 @@ def makeGraph(
             rf"  \node[draw=none, anchor=west] (sumgapvdots) at ({x_sum:.4f},{y_mid_gap:.4f}) {{$\vdots$}};"
         )
         leaf_sum_body = (
-            _substitute_row_placeholders(substitute_ev(leaf_row_sum, d), d)
+            _cleanup_redundant_one_in_math(
+                _substitute_row_placeholders(substitute_ev(leaf_row_sum, d), d)
+            )
             if leaf_row_sum is not None
             else row_sum_fn(display_height)
         )
