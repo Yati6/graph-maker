@@ -71,6 +71,11 @@ Supported forms:
 
 Examples: `ev(2^{{row}})` → `2^row`; `ev(2^{{2r}})` → `2^(2*row)`; `\frac{n}{ev(2^{{2r}})}` for a decaying denominator. After substitution, the pipeline removes `\frac{·}{1}`, turns `x^{0}` / `x^0` (single-letter base) into `1`, unwraps `(n)^{2}` → `n^{2}`, and strips redundant `*1`, `\cdot 1`, `/1`, etc. (e.g. `n * ev(1)` → `n`, `\frac{n}{ev(1)}` → `n`).
 
+## Results
+
+![Recursion tree example](assets/recursion-tree-example.png)
+
+
 ---
 
 ## Credits
